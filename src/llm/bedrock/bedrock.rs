@@ -5,6 +5,7 @@ use aws_sdk_bedrockruntime::{
     Client,
 };
 use futures::Stream;
+use log::info;
 use std::{pin::Pin, sync::Arc};
 
 use crate::{
@@ -14,7 +15,7 @@ use crate::{
 };
 use async_trait::async_trait;
 
-const DEFAULT_MODEL: &str = "nomic-embed-text";
+const DEFAULT_MODEL: &str = "meta.llama3-8b-instruct-v1:0";
 
 // Examples
 // https://github.com/awslabs/aws-sdk-rust/tree/main/examples/examples/bedrock-runtime/src/bin
@@ -110,6 +111,8 @@ impl LLM for Bedrock {
             .collect::<Result<Vec<BedrockMessage>, &str>>()
             .unwrap(); // TODO: Remove unwrap
 
+        println!("Model: {}", self.model);
+
         let response = self
             .client
             .converse()
@@ -120,6 +123,7 @@ impl LLM for Bedrock {
 
         match response {
             Ok(output) => {
+                // TODO: Handle 'service error' (it will pop when invalid model is selected)
                 let text = get_converse_output_text(output).unwrap(); // TODO: Remove unwrap
                 println!("{}", text);
             }
