@@ -11,9 +11,6 @@ pub use ollama::*;
 pub mod openai;
 pub use error::*;
 
-pub mod bedrock;
-pub use bedrock::*;
-
 #[cfg(feature = "fastembed")]
 mod fastembed;
 #[cfg(feature = "fastembed")]

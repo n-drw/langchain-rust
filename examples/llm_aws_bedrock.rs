@@ -1,9 +1,16 @@
-use langchain_rust::embedding::{bedrock::*, embedder_trait::Embedder};
+// use langchain_rust::embedding::{bedrock::*, embedder_trait::Embedder};
+
+use aws_config::BehaviorVersion;
+use langchain_rust::{language_models::llm::LLM, llm::bedrock::Bedrock, schemas::messages};
 
 #[tokio::main]
 async fn main() {
+    let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
+    let bedrock = Bedrock::new(config);
+    let t = bedrock.invoke("Test").await;
+    println!("{:?}", t);
 
-    let bedrock_config = 
+    // println!("{:#?}", embedder)
 
     // let azure_config = AzureConfig::default()
     //     .with_api_key("REPLACE_ME_WITH_YOUR_API_KEY")
