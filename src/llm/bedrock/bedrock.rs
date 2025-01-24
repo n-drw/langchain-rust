@@ -1,24 +1,45 @@
+use async_trait::async_trait;
 use aws_config::{BehaviorVersion, SdkConfig};
 use aws_sdk_bedrockruntime::{
+    error::SdkError,
     operation::converse::{ConverseError, ConverseOutput},
-    types::{ContentBlock, ConversationRole, Message as BedrockMessage},
+    types::{ContentBlock, ConversationRole, Message as BedrockMessage, SystemContentBlock},
     Client,
 };
 use futures::Stream;
-use log::info;
-use std::{pin::Pin, sync::Arc};
+use std::pin::Pin;
+use thiserror::Error;
 
 use crate::{
-    embedding::{embedder_trait::Embedder, EmbedderError},
     language_models::{llm::LLM, GenerateResult, LLMError, TokenUsage},
-    schemas::{Message, StreamData},
+    schemas::{Message, MessageType, StreamData},
 };
-use async_trait::async_trait;
 
 const DEFAULT_MODEL: &str = "meta.llama3-8b-instruct-v1:0";
 
 // Examples
 // https://github.com/awslabs/aws-sdk-rust/tree/main/examples/examples/bedrock-runtime/src/bin
+
+#[derive(Error, Debug)]
+pub enum BedrockError {
+    #[error("Failed to parse messages: {0}")]
+    FailedToParseMessages(String),
+
+    #[error("Failed to parse response: {0}")]
+    FailedToParseResponse(String),
+
+    #[error("Failed extract text from response: {0}")]
+    FailedToExtractText(String),
+
+    #[error("{0}")]
+    AwsServiceError(SdkError<ConverseError>),
+
+    #[error("System message should be sent in separate call")]
+    SystemMessageError,
+
+    #[error("Failed to build messages: '{0}'")]
+    FailedToBuildMessages(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct Bedrock {
@@ -95,48 +116,74 @@ fn get_converse_output_text(output: ConverseOutput) -> Result<String, BedrockCon
         .to_string();
     Ok(text)
 }
+fn create_bedrock_message(
+    message: &Message,
+    role: ConversationRole,
+) -> Result<BedrockMessage, LLMError> {
+    BedrockMessage::builder()
+        .role(role)
+        .content(ContentBlock::Text(message.content.clone()))
+        .build()
+        .map_err(|build_error| {
+            LLMError::BedrockError(BedrockError::FailedToBuildMessages(build_error.to_string()))
+        })
+}
 
 #[async_trait]
 impl LLM for Bedrock {
+    /*
+       Questions:
+           1. What is the ToolMessage map to?
+
+    */
+
     async fn generate(&self, messages: &[Message]) -> Result<GenerateResult, LLMError> {
-        let messages = messages
+        let conversation_builder = self.client.converse().model_id(self.model.clone());
+
+        // Ok(message);
+        let system_messages = messages
             .iter()
-            .map(|message| {
-                BedrockMessage::builder()
-                    .role(ConversationRole::User)
-                    .content(ContentBlock::Text(message.content.clone()))
-                    .build()
-                    .map_err(|_| "failed to build message")
-            })
-            .collect::<Result<Vec<BedrockMessage>, &str>>()
-            .unwrap(); // TODO: Remove unwrap
+            .filter(|m| m.message_type == MessageType::SystemMessage)
+            .map(|m| SystemContentBlock::Text(m.content.clone()))
+            .collect::<Vec<SystemContentBlock>>();
 
-        println!("Model: {}", self.model);
+        let ai_messages = messages
+            .iter()
+            .filter(|m| m.message_type == MessageType::AIMessage)
+            // TODO: Not sure if this is correct. And nto sure if it
+            // the "AIMessage" is needed for Bedrock
+            .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
+            .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
 
-        let response = self
-            .client
-            .converse()
-            .model_id(self.model.clone())
-            .set_messages(Some(messages))
+        let human_messages = messages
+            .iter()
+            .filter(|m| m.message_type == MessageType::HumanMessage)
+            .map(|m| create_bedrock_message(m, ConversationRole::User))
+            .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
+
+        let tool_messages = messages
+            .iter()
+            .filter(|m| m.message_type == MessageType::ToolMessage)
+            .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
+            .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
+
+        let response = conversation_builder
+            .set_system(Some(system_messages))
+            .set_messages(Some(human_messages))
             .send()
-            .await;
+            .await
+            .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(e)))?;
 
-        match response {
-            Ok(output) => {
-                // TODO: Handle 'service error' (it will pop when invalid model is selected)
-                let text = get_converse_output_text(output).unwrap(); // TODO: Remove unwrap
-                println!("{}", text);
-            }
-            Err(e) => println!("{}", e),
-        }
+        let tokens = response
+            .clone()
+            .usage
+            .map(|usage| TokenUsage::new(usage.input_tokens as u32, usage.output_tokens as u32));
 
-        let tokens = TokenUsage::default();
-        let generation = String::from("test test test generation");
+        let generation = get_converse_output_text(response).or(Err(LLMError::BedrockError(
+            BedrockError::FailedToExtractText("Failed to extract text from response".to_string()),
+        )))?;
 
-        Ok(GenerateResult {
-            tokens: Some(tokens),
-            generation,
-        })
+        Ok(GenerateResult { tokens, generation })
     }
 
     async fn stream(
@@ -144,11 +191,6 @@ impl LLM for Bedrock {
         messages: &[Message],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamData, LLMError>> + Send>>, LLMError> {
         todo!()
-    }
-    async fn invoke(&self, prompt: &str) -> Result<String, LLMError> {
-        self.generate(&[Message::new_human_message(prompt)])
-            .await
-            .map(|res| res.generation)
     }
 }
 
