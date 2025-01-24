@@ -58,16 +58,6 @@ impl Bedrock {
             model: String::from(DEFAULT_MODEL),
         }
     }
-
-    pub fn with_model(mut self, model: &str) -> Self {
-        self.model = model.into();
-        self
-    }
-
-    pub fn with_options(mut self, config: SdkConfig) -> Self {
-        self.config = config;
-        self
-    }
 }
 
 impl Default for Bedrock {
@@ -116,6 +106,7 @@ fn get_converse_output_text(output: ConverseOutput) -> Result<String, BedrockCon
         .to_string();
     Ok(text)
 }
+
 fn create_bedrock_message(
     message: &Message,
     role: ConversationRole,
@@ -140,20 +131,19 @@ impl LLM for Bedrock {
     async fn generate(&self, messages: &[Message]) -> Result<GenerateResult, LLMError> {
         let conversation_builder = self.client.converse().model_id(self.model.clone());
 
-        // Ok(message);
         let system_messages = messages
             .iter()
             .filter(|m| m.message_type == MessageType::SystemMessage)
             .map(|m| SystemContentBlock::Text(m.content.clone()))
             .collect::<Vec<SystemContentBlock>>();
 
-        let ai_messages = messages
-            .iter()
-            .filter(|m| m.message_type == MessageType::AIMessage)
-            // TODO: Not sure if this is correct. And nto sure if it
-            // the "AIMessage" is needed for Bedrock
-            .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
-            .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
+        // let ai_messages = messages
+        //     .iter()
+        //     .filter(|m| m.message_type == MessageType::AIMessage)
+        //     // TODO: Not sure if this is correct. And nto sure if it
+        //     // the "AIMessage" is needed for Bedrock
+        //     .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
+        //     .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
 
         let human_messages = messages
             .iter()
@@ -161,11 +151,11 @@ impl LLM for Bedrock {
             .map(|m| create_bedrock_message(m, ConversationRole::User))
             .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
 
-        let tool_messages = messages
-            .iter()
-            .filter(|m| m.message_type == MessageType::ToolMessage)
-            .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
-            .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
+        // let tool_messages = messages
+        //     .iter()
+        //     .filter(|m| m.message_type == MessageType::ToolMessage)
+        //     .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
+        //     .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
 
         let response = conversation_builder
             .set_system(Some(system_messages))
@@ -175,8 +165,8 @@ impl LLM for Bedrock {
             .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(e)))?;
 
         let tokens = response
-            .clone()
             .usage
+            .clone()
             .map(|usage| TokenUsage::new(usage.input_tokens as u32, usage.output_tokens as u32));
 
         let generation = get_converse_output_text(response).or(Err(LLMError::BedrockError(
