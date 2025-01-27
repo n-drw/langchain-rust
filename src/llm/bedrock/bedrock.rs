@@ -15,31 +15,12 @@ use crate::{
     schemas::{Message, MessageType, StreamData},
 };
 
+use super::BedrockError;
+
 const DEFAULT_MODEL: &str = "meta.llama3-8b-instruct-v1:0";
 
 // Examples
 // https://github.com/awslabs/aws-sdk-rust/tree/main/examples/examples/bedrock-runtime/src/bin
-
-#[derive(Error, Debug)]
-pub enum BedrockError {
-    #[error("Failed to parse messages: {0}")]
-    FailedToParseMessages(String),
-
-    #[error("Failed to parse response: {0}")]
-    FailedToParseResponse(String),
-
-    #[error("Failed extract text from response: {0}")]
-    FailedToExtractText(String),
-
-    #[error("{0}")]
-    AwsServiceError(SdkError<ConverseError>),
-
-    #[error("System message should be sent in separate call")]
-    SystemMessageError,
-
-    #[error("Failed to build messages: '{0}'")]
-    FailedToBuildMessages(String),
-}
 
 #[derive(Debug, Clone)]
 pub struct Bedrock {
@@ -184,19 +165,53 @@ impl LLM for Bedrock {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[tokio::test]
-//     #[ignore]
-//     async fn test_ollama_embed() {
-//         let ollama = AWSEmbedder::default()
-//             .with_model("nomic-embed-text")
-//             .with_options(GenerationOptions::default().temperature(0.5));
+    #[tokio::test]
+    #[ignore]
+    async fn test_generate() {
+        let config: SdkConfig = aws_config::load_from_env().await;
+        let bedrock = Bedrock::new(config);
+        let response = bedrock.invoke("Hey Macarena, ay").await.unwrap();
+        println!("{}", response);
 
-//         let response = ollama.embed_query("Why is the sky blue?").await.unwrap();
+        assert_eq!(response, "Hey Macarena, ay");
+    }
 
-//         assert_eq!(response.len(), 768);
-//     }
-// }
+    #[tokio::test]
+    #[ignore]
+    async fn test_generate_with_messages() {
+        let config: SdkConfig = aws_config::load_from_env().await;
+        let bedrock = Bedrock::new(config);
+
+        let messages = vec![
+            Message::new_system_message(
+                "You are the voice interface of an overpriced cloud tool, AWS.",
+            ),
+            Message::new_human_message("What's the point of cloud services?"),
+        ];
+
+        let response = bedrock.generate(&messages).await.unwrap();
+        println!("{:#?}", response);
+
+        assert!(response.generation.len() > 0);
+    }
+
+    // #[tokio::test]
+    // #[ignore]
+    // async fn test_stream() {
+    //     let ollama = Ollama::default().with_model("llama3.2");
+
+    //     let message = Message::new_human_message("Why does water boil at 100 degrees?");
+    //     let mut stream = ollama.stream(&vec![message]).await.unwrap();
+    //     let mut stdout = tokio::io::stdout();
+    //     while let Some(res) = stream.next().await {
+    //         let data = res.unwrap();
+    //         stdout.write(data.content.as_bytes()).await.unwrap();
+    //     }
+    //     stdout.write(b"\n").await.unwrap();
+    //     stdout.flush().await.unwrap();
+    // }
+}
