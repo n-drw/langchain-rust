@@ -7,5 +7,11 @@ pub use claude::*;
 pub mod ollama;
 pub use ollama::*;
 
+pub mod qwen;
+pub use qwen::*;
+
+pub mod deepseek;
+pub use deepseek::*;
+
 pub mod bedrock;
 pub use bedrock::*;

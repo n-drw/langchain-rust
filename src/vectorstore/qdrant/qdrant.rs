@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use qdrant_client::client::Payload;
 use qdrant_client::qdrant::{Filter, PointStruct, SearchPointsBuilder, UpsertPointsBuilder};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::error::Error;
 use std::sync::Arc;
 
@@ -27,14 +27,18 @@ pub struct Store {
     pub search_filter: Option<Filter>,
 }
 
+type QdrantOptions = VecStoreOptions<Value>;
+
 #[async_trait]
 impl VectorStore for Store {
+    type Options = QdrantOptions;
+
     /// Add documents to the store.
     /// Returns a list of document IDs added to the Qdrant collection.
     async fn add_documents(
         &self,
         docs: &[Document],
-        opt: &VecStoreOptions,
+        opt: &QdrantOptions,
     ) -> Result<Vec<String>, Box<dyn Error>> {
         let embedder = opt.embedder.as_ref().unwrap_or(&self.embedder);
         let texts: Vec<String> = docs.iter().map(|d| d.page_content.clone()).collect();
@@ -42,10 +46,20 @@ impl VectorStore for Store {
         let ids = docs.iter().map(|_| Uuid::new_v4().to_string());
         let vectors = embedder.embed_documents(&texts).await?.into_iter();
         let payloads = docs.iter().map(|d| {
-            json!({
+            let mut base = json!({
                 &self.content_field: d.page_content,
                 &self.metadata_field: d.metadata,
-            })
+            });
+
+            if let Some(extra_json) = opt.filters.clone() {
+                if let (Value::Object(ref mut base_map), Value::Object(extra_map)) =
+                    (&mut base, extra_json)
+                {
+                    base_map.extend(extra_map);
+                }
+            }
+
+            base
         });
 
         let mut points: Vec<PointStruct> = Vec::with_capacity(docs.len());
@@ -69,7 +83,7 @@ impl VectorStore for Store {
         &self,
         query: &str,
         limit: usize,
-        opt: &VecStoreOptions,
+        opt: &QdrantOptions,
     ) -> Result<Vec<Document>, Box<dyn Error>> {
         if opt.name_space.is_some() {
             return Err("Qdrant doesn't support namespaces".into());
