@@ -6,7 +6,7 @@ use serde_json::Error as SerdeJsonError;
 use thiserror::Error;
 use tokio::time::error::Elapsed;
 
-use crate::llm::{AnthropicError, BedrockError, DeepseekError, QwenError};
+use crate::llm::{{AnthropicError, BedrockError}, DeepseekError, QwenError};
 
 #[derive(Error, Debug)]
 pub enum LLMError {

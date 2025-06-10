@@ -1,71 +1,30 @@
-workspace = {members = ["examples/vector_store_surrealdb"]}
+workspace = { members = ["examples/vector_store_surrealdb"] }
 [package]
-description = "LangChain for Rust, the easiest way to write LLM-based programs in Rust"
-documentation = "https://langchain-rust.sellie.tech/get-started/quickstart"
-edition = "2021"
-keywords = ["chain", "chatgpt", "llm", "langchain"]
-license = "MIT"
 name = "langchain-rust"
+version = "4.6.0"
+edition = "2021"
 publish = true
 repository = "https://github.com/Abraxas-365/langchain-rust"
-version = "4.6.0"
+license = "MIT"
+description = "LangChain for Rust, the easiest way to write LLM-based programs in Rust"
+keywords = ["chain", "chatgpt", "llm", "langchain"]
+documentation = "https://langchain-rust.sellie.tech/get-started/quickstart"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-openai = "0.26.0"
-async-recursion = "1.1.0"
-async-stream = "0.3.5"
+scraper = "0.21"
+serde = { version = "1.0", features = ["derive"] }
 async-trait = "0.1.80"
-# For bedrock support
-aws-config = {version = "1.1.7", features = ["behavior-version-latest"]}
 aws-sdk-bedrock = "1.70.0"
 aws-sdk-bedrockruntime = "1.70.0"
-csv = "1.3.0"
-fastembed = {version = "4", optional = true}
-flume = {version = "0.11.0", optional = true}
-futures = "0.3"
-futures-util = "0.3.30"
-gix = {version = "0.68.0", default-features = false, optional = true, features = [
-  "parallel",
-  "revision",
-  "serde",
-]}
-glob = "0.3.1"
-htmd = {version = "0.1", optional = true}
-html-escape = "0.2.13"
-log = "0.4.21"
-lopdf = {version = "0.34.0", features = ["nom_parser"], optional = true}
-mistralai-client = {version = "0.14.0", optional = true}
-mockito = "1.4.0"
-ollama-rs = {version = "0.2.0", optional = true, features = [
-  "stream",
-  "chat-history",
-]}
-opensearch = {version = "2", optional = true, features = ["aws-auth"]}
-pdf-extract = {version = "0.7.8", optional = true}
-pgvector = {version = "0.4.0", features = [
-  "postgres",
-  "sqlx",
-], optional = true}
-qdrant-client = {version = "1.10.1", optional = true}
-readability = "0.3.0"
-regex = "1.10.4"
-reqwest = {version = "0.12", features = ["json", "stream"]}
-reqwest-eventsource = "0.6.0"
-scraper = "0.21"
-secrecy = "0.8.0"
-serde = {version = "1.0", features = ["derive"]}
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 serde_json = "1.0"
-sqlx = {version = "0.8.0", default-features = false, features = [
-  "postgres",
-  "sqlite",
-  "runtime-tokio-native-tls",
-  "json",
-  "uuid",
-], optional = true}
-strum_macros = "0.26.2"
-surrealdb = {version = "2.0.2", optional = true, default-features = false}
-text-splitter = {version = "0.17", features = ["tiktoken-rs", "markdown"]}
+futures = "0.3"
+regex = "1.10.4"
+log = "0.4.21"
+html-escape = "0.2.13"
+reqwest-eventsource = "0.6.0"
 async-openai = "0.28.1"
 mockito = "1.4.0"
 tiktoken-rs = "0.5.8"
@@ -88,8 +47,8 @@ urlencoding = "2.1.3"
 lopdf = { version = "0.34.0", features = ["nom_parser"], optional = true }
 pdf-extract = { version = "0.7.8", optional = true  }
 thiserror = "2.0.0"
-tiktoken-rs = "0.5.8"
-tokio = {version = "1", features = ["full"]}
+futures-util = "0.3.30"
+async-stream = "0.3.5"
 tokio-stream = "0.1.15"
 secrecy = { version = "0.10.3", features = ["serde"] }
 readability = "0.3.0"
@@ -134,15 +93,15 @@ default = []
 fastembed = ["dep:fastembed"]
 git = ["gix", "flume"]
 html-to-markdown = ["dep:htmd"]
-lopdf = ["dep:lopdf"]
 mistralai = ["mistralai-client"]
-ollama = ["ollama-rs"]
-opensearch = ["dep:opensearch"]
+lopdf = ["dep:lopdf"]
 pdf-extract = ["dep:lopdf", "dep:pdf-extract"]
+ollama = ["ollama-rs"]
+opensearch = ["dep:opensearch", "aws-config"]
 postgres = ["pgvector", "sqlx", "uuid"]
 qdrant = ["qdrant-client", "uuid"]
-sqlite-vec = ["sqlx"]
 sqlite-vss = ["sqlx"]
+sqlite-vec = ["sqlx"]
 surrealdb = ["dep:surrealdb"]
 tree-sitter = [
     "cc",
@@ -162,8 +121,8 @@ tree-sitter = [
 
 [dev-dependencies]
 base64 = "0.22.1"
-testcontainers = "0.23"
 tokio-test = "0.4.4"
+testcontainers = "0.23"
 
 [build-dependencies]
-cc = {version = "1", optional = true}
+cc = { version = "1", optional = true }
