@@ -1,4 +1,5 @@
-use aws_sdk_bedrockruntime::{error::SdkError, operation::converse::ConverseError};
+use aws_sdk_bedrockruntime::error::SdkError;
+use std::fmt::Debug;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -12,8 +13,8 @@ pub enum BedrockError {
     #[error("Failed extract text from response: {0}")]
     FailedToExtractText(String),
 
-    #[error("{0}")]
-    AwsServiceError(SdkError<ConverseError>),
+    #[error("AWS service error: {0:?}")]
+    AwsServiceError(Box<dyn std::error::Error + Send + Sync + 'static>),
 
     #[error("System message should be sent in separate call")]
     SystemMessageError,

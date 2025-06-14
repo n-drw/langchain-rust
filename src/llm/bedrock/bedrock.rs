@@ -1,18 +1,17 @@
 use async_trait::async_trait;
 use aws_config::{BehaviorVersion, SdkConfig};
 use aws_sdk_bedrockruntime::{
-    error::SdkError,
-    operation::converse::{ConverseError, ConverseOutput},
-    types::{ContentBlock, ConversationRole, Message as BedrockMessage, SystemContentBlock},
+    operation::invoke_model::InvokeModelOutput,
     Client,
 };
+use crate::llm::bedrock::qwen_chat_template::apply_qwen_chat_template;
+use serde_json;
 use futures::Stream;
 use std::pin::Pin;
-use thiserror::Error;
 
 use crate::{
-    language_models::{llm::LLM, GenerateResult, LLMError, TokenUsage},
-    schemas::{Message, MessageType, StreamData},
+    language_models::{llm::LLM, GenerateResult, LLMError},
+    schemas::{Message, StreamData},
 };
 
 use super::BedrockError;
@@ -26,17 +25,17 @@ const DEFAULT_MODEL: &str = "meta.llama3-8b-instruct-v1:0";
 pub struct Bedrock {
     pub(crate) client: Client,
     pub(crate) config: SdkConfig,
-    pub(crate) model: String,
+    pub(crate) model_arn: String,
 }
 
 impl Bedrock {
-    pub fn new(config: SdkConfig) -> Self {
+    pub fn new(config: SdkConfig, model_arn: String) -> Self {
         let client = Client::new(&config);
 
         Self {
             client,
             config,
-            model: String::from(DEFAULT_MODEL),
+            model_arn,
         }
     }
 }
@@ -45,61 +44,15 @@ impl Default for Bedrock {
     fn default() -> Self {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let config: SdkConfig = aws_config::defaults(BehaviorVersion::latest()).load().await;
-            Self::new(config)
+            Self::new(config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string())
         })
     }
 }
 
-#[derive(Debug)]
-struct BedrockConverseError(String);
-impl std::fmt::Display for BedrockConverseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Can't invoke '{}'. Reason: {}", DEFAULT_MODEL, self.0)
-    }
-}
-impl std::error::Error for BedrockConverseError {}
-impl From<&str> for BedrockConverseError {
-    fn from(value: &str) -> Self {
-        BedrockConverseError(value.to_string())
-    }
-}
-impl From<&ConverseError> for BedrockConverseError {
-    fn from(value: &ConverseError) -> Self {
-        BedrockConverseError::from(match value {
-            ConverseError::ModelTimeoutException(_) => "Model took too long",
-            ConverseError::ModelNotReadyException(_) => "Model is not ready",
-            _ => "Unknown",
-        })
-    }
-}
 
-fn get_converse_output_text(output: ConverseOutput) -> Result<String, BedrockConverseError> {
-    let text = output
-        .output()
-        .ok_or("no output")?
-        .as_message()
-        .map_err(|_| "output not a message")?
-        .content()
-        .first()
-        .ok_or("no content in message")?
-        .as_text()
-        .map_err(|_| "content is not text")?
-        .to_string();
-    Ok(text)
-}
+// Removed: get_converse_output_text and ConverseOutput logic (no longer needed for invoke_model).
 
-fn create_bedrock_message(
-    message: &Message,
-    role: ConversationRole,
-) -> Result<BedrockMessage, LLMError> {
-    BedrockMessage::builder()
-        .role(role)
-        .content(ContentBlock::Text(message.content.clone()))
-        .build()
-        .map_err(|build_error| {
-            LLMError::BedrockError(BedrockError::FailedToBuildMessages(build_error.to_string()))
-        })
-}
+// No longer needed: BedrockMessage logic removed for invoke_model flow.
 
 #[async_trait]
 impl LLM for Bedrock {
@@ -110,50 +63,24 @@ impl LLM for Bedrock {
     */
 
     async fn generate(&self, messages: &[Message]) -> Result<GenerateResult, LLMError> {
-        let conversation_builder = self.client.converse().model_id(self.model.clone());
-
-        let system_messages = messages
-            .iter()
-            .filter(|m| m.message_type == MessageType::SystemMessage)
-            .map(|m| SystemContentBlock::Text(m.content.clone()))
-            .collect::<Vec<SystemContentBlock>>();
-
-        // let ai_messages = messages
-        //     .iter()
-        //     .filter(|m| m.message_type == MessageType::AIMessage)
-        //     // TODO: Not sure if this is correct. And nto sure if it
-        //     // the "AIMessage" is needed for Bedrock
-        //     .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
-        //     .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
-
-        let human_messages = messages
-            .iter()
-            .filter(|m| m.message_type == MessageType::HumanMessage)
-            .map(|m| create_bedrock_message(m, ConversationRole::User))
-            .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
-
-        // let tool_messages = messages
-        //     .iter()
-        //     .filter(|m| m.message_type == MessageType::ToolMessage)
-        //     .map(|m| create_bedrock_message(m, ConversationRole::Assistant))
-        //     .collect::<Result<Vec<BedrockMessage>, LLMError>>()?;
-
-        let response = conversation_builder
-            .set_system(Some(system_messages))
-            .set_messages(Some(human_messages))
+        // Format messages using Qwen chat template
+        use serde_json::json;
+        let prompt = apply_qwen_chat_template(messages);
+        let body = json!({ "prompt": prompt }).to_string();
+        let response: InvokeModelOutput = self.client
+            .invoke_model()
+            .model_id(self.model_arn.clone())
+            .body(body.into_bytes().into())
+            .content_type("application/json")
+            .accept("application/json")
             .send()
             .await
-            .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(e)))?;
+            .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(Box::new(e))))?;
 
-        let tokens = response
-            .usage
-            .clone()
-            .map(|usage| TokenUsage::new(usage.input_tokens as u32, usage.output_tokens as u32));
-
-        let generation = get_converse_output_text(response).or(Err(LLMError::BedrockError(
-            BedrockError::FailedToExtractText("Failed to extract text from response".to_string()),
-        )))?;
-
+        // Extract the output from the response body
+        let body_bytes = response.body().as_ref();
+        let generation = String::from_utf8_lossy(body_bytes).to_string();
+        let tokens = None;
         Ok(GenerateResult { tokens, generation })
     }
 
@@ -170,21 +97,22 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore]
     async fn test_generate() {
-        let config: SdkConfig = aws_config::load_from_env().await;
-        let bedrock = Bedrock::new(config);
-        let response = bedrock.invoke("Hey Macarena, ay").await.unwrap();
-        println!("{}", response);
-
-        assert_eq!(response, "Hey Macarena, ay");
+        let config: SdkConfig = aws_config::from_env().region("us-west-2").load().await;
+        let bedrock = Bedrock::new(config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string());
+        let messages = vec![
+            Message::new_system_message("You are a helpful coding assistant."),
+            Message::new_human_message("Say hello to the world!"),
+        ];
+        let response = bedrock.generate(&messages).await.unwrap();
+        println!("{}", response.generation);
+        assert!(response.generation.len() > 0);
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_generate_with_messages() {
-        let config: SdkConfig = aws_config::load_from_env().await;
-        let bedrock = Bedrock::new(config);
+        let config: SdkConfig = aws_config::from_env().region("us-west-2").load().await;
+        let bedrock = Bedrock::new(config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string());
 
         let messages = vec![
             Message::new_system_message(
