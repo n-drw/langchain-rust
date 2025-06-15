@@ -2,12 +2,14 @@ use async_trait::async_trait;
 use aws_config::{BehaviorVersion, SdkConfig};
 use aws_sdk_bedrockruntime::{
     operation::invoke_model::InvokeModelOutput,
+    operation::invoke_model_with_response_stream::InvokeModelWithResponseStreamOutput,
     Client,
 };
-use crate::llm::bedrock::qwen_chat_template::apply_qwen_chat_template;
+use crate::{language_models::TokenUsage, llm::bedrock::qwen_chat_template::apply_qwen_chat_template, schemas::convert::OpenAiIntoLangchain};
 use serde_json;
-use futures::Stream;
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use std::pin::Pin;
+use async_stream;
 
 use crate::{
     language_models::{llm::LLM, GenerateResult, LLMError},
@@ -29,9 +31,7 @@ pub struct Bedrock {
 }
 
 impl Bedrock {
-    pub fn new(config: SdkConfig, model_arn: String) -> Self {
-        let client = Client::new(&config);
-
+    pub fn new(client: Client, config: SdkConfig, model_arn: String) -> Self {
         Self {
             client,
             config,
@@ -44,7 +44,8 @@ impl Default for Bedrock {
     fn default() -> Self {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let config: SdkConfig = aws_config::defaults(BehaviorVersion::latest()).load().await;
-            Self::new(config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string())
+            let client = Client::new(&config);
+            Self::new(client, config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string())
         })
     }
 }
@@ -88,7 +89,104 @@ impl LLM for Bedrock {
         &self,
         messages: &[Message],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamData, LLMError>> + Send>>, LLMError> {
-        todo!()
+        // Format prompt using Qwen chat template
+        let prompt = apply_qwen_chat_template(messages);
+        
+        // Create the request payload
+        let payload = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 2000,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "stream": true
+        });
+        
+        let body = serde_json::to_string(&payload)
+            .map_err(|e| LLMError::OtherError(format!("JSON serialization error: {}", e)))?;
+
+        // Send the streaming request to Bedrock
+        let response = self.client
+            .invoke_model_with_response_stream()
+            .model_id(self.model_arn.clone())
+            .body(body.into_bytes().into())
+            .content_type("application/json")
+            .accept("application/json")
+            .send()
+            .await
+            .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(Box::new(e))))?;
+
+        // Process the event stream using the AWS SDK EventReceiver
+        let stream = async_stream::stream! {
+            let mut event_stream = response.body;
+            while let Ok(Some(event)) = event_stream.recv().await {
+                // Handle different event types from the response stream
+                use aws_sdk_bedrockruntime::types::ResponseStream;
+                match event {
+                    ResponseStream::Chunk(payload_part) => {
+                        // Extract bytes from the chunk
+                        if let Some(chunk_blob) = payload_part.bytes() {
+                            let chunk_bytes = chunk_blob.as_ref();
+                            if let Ok(chunk_str) = std::str::from_utf8(chunk_bytes) {
+                                // Parse the JSON response
+                                if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(chunk_str) {
+                                    // Extract content from the response
+                                    let content = if let Some(text) = chunk_json.as_str() {
+                                        text.to_string()
+                                    } else if let Some(output) = chunk_json.get("output").and_then(|o| o.as_str()) {
+                                        output.to_string()
+                                    } else if let Some(text) = chunk_json.get("text").and_then(|t| t.as_str()) {
+                                        text.to_string()
+                                    } else if let Some(generation) = chunk_json.get("generation").and_then(|g| g.as_str()) {
+                                        generation.to_string()
+                                    } else {
+                                        // Fallback: check if this is a delta response
+                                        if let Some(delta) = chunk_json.get("delta") {
+                                            if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                                text.to_string()
+                                            } else {
+                                                "".to_string()
+                                            }
+                                        } else {
+                                            "".to_string()
+                                        }
+                                    };
+
+                                    // Only yield non-empty content
+                                    if !content.trim().is_empty() {
+                                        // Extract usage info if available
+                                        let usage = chunk_json.get("usage").and_then(|u| {
+                                            Some(TokenUsage {
+                                                prompt_tokens: u.get("input_tokens")
+                                                    .or_else(|| u.get("prompt_tokens"))
+                                                    .and_then(|t| t.as_u64())
+                                                    .expect("input_tokens or prompt_tokens must be present") as u32,
+                                                completion_tokens: u.get("output_tokens")
+                                                    .or_else(|| u.get("completion_tokens"))
+                                                    .and_then(|t| t.as_u64())
+                                                    .expect("output_tokens or completion_tokens must be present") as u32,
+                                                total_tokens: u.get("total_tokens")
+                                                    .and_then(|t| t.as_u64())
+                                                    .expect("total_tokens must be present") as u32,
+                                            })
+                                        });
+
+                                        yield Ok(StreamData {
+                                            value: chunk_json.clone(),
+                                            tokens: usage,
+                                            content,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        // Handle other event types (metadata, etc.) - typically ignore
+                    }
+                }
+            }
+        };
+        Ok(Box::pin(stream))
     }
 }
 
@@ -99,7 +197,8 @@ mod tests {
     #[tokio::test]
     async fn test_generate() {
         let config: SdkConfig = aws_config::from_env().region("us-west-2").load().await;
-        let bedrock = Bedrock::new(config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string());
+        let client = Client::new(&config);
+        let bedrock = Bedrock::new(client, config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string());
         let messages = vec![
             Message::new_system_message("You are a helpful coding assistant."),
             Message::new_human_message("Say hello to the world!"),
@@ -112,7 +211,8 @@ mod tests {
     #[tokio::test]
     async fn test_generate_with_messages() {
         let config: SdkConfig = aws_config::from_env().region("us-west-2").load().await;
-        let bedrock = Bedrock::new(config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string());
+        let client = Client::new(&config);
+        let bedrock = Bedrock::new(client, config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string());
 
         let messages = vec![
             Message::new_system_message(
