@@ -10,6 +10,7 @@ use serde_json;
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
 use std::pin::Pin;
 use async_stream;
+use log;
 
 use crate::{
     language_models::{llm::LLM, GenerateResult, LLMError},
@@ -129,7 +130,10 @@ impl LLM for Bedrock {
                             if let Ok(chunk_str) = std::str::from_utf8(chunk_bytes) {
                                 // Parse the JSON response
                                 if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(chunk_str) {
-                                    // Extract content from the response
+                                    // Add debug logging to see the actual response structure
+                                    log::debug!("Bedrock stream chunk JSON: {}", serde_json::to_string_pretty(&chunk_json).unwrap_or_else(|_| chunk_json.to_string()));
+                                    
+                                    // Extract content from the response with improved logic for DeepSeek model
                                     let content = if let Some(text) = chunk_json.as_str() {
                                         text.to_string()
                                     } else if let Some(output) = chunk_json.get("output").and_then(|o| o.as_str()) {
@@ -138,10 +142,18 @@ impl LLM for Bedrock {
                                         text.to_string()
                                     } else if let Some(generation) = chunk_json.get("generation").and_then(|g| g.as_str()) {
                                         generation.to_string()
-                                    } else {
-                                        // Fallback: check if this is a delta response
-                                        if let Some(delta) = chunk_json.get("delta") {
-                                            if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                    } else if let Some(choices) = chunk_json.get("choices").and_then(|c| c.as_array()) {
+                                        // Handle OpenAI-style response format (common for custom models)
+                                        if let Some(first_choice) = choices.first() {
+                                            if let Some(delta) = first_choice.get("delta") {
+                                                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                                    content.to_string()
+                                                } else if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                                    text.to_string()
+                                                } else {
+                                                    "".to_string()
+                                                }
+                                            } else if let Some(text) = first_choice.get("text").and_then(|t| t.as_str()) {
                                                 text.to_string()
                                             } else {
                                                 "".to_string()
@@ -149,24 +161,61 @@ impl LLM for Bedrock {
                                         } else {
                                             "".to_string()
                                         }
+                                    } else {
+                                        // Fallback: check if this is a delta response
+                                        if let Some(delta) = chunk_json.get("delta") {
+                                            if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                                text.to_string()
+                                            } else if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                                content.to_string()
+                                            } else {
+                                                "".to_string()
+                                            }
+                                        } else {
+                                            // Final fallback: try to find any string field that might contain the content
+                                            chunk_json.as_object()
+                                                .and_then(|obj| {
+                                                    // Look for common content fields
+                                                    for key in &["response", "message", "answer", "completion", "result"] {
+                                                        if let Some(value) = obj.get(*key).and_then(|v| v.as_str()) {
+                                                            if !value.trim().is_empty() {
+                                                                return Some(value.to_string());
+                                                            }
+                                                        }
+                                                    }
+                                                    None
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    // If we still can't find content, log the structure and return the raw JSON
+                                                    log::warn!("Failed to extract content from Bedrock response. Raw JSON: {}", chunk_str);
+                                                    // Return a small indicator that we received something
+                                                    if chunk_str.len() > 10 {
+                                                        format!("[Unparsed response: {}...]", &chunk_str[..50.min(chunk_str.len())])
+                                                    } else {
+                                                        "".to_string()
+                                                    }
+                                                })
+                                        }
                                     };
 
-                                    // Only yield non-empty content
-                                    if !content.trim().is_empty() {
+                                    // Always yield something, even if content is empty (for debugging)
+                                    let should_yield = !content.trim().is_empty() || chunk_json.as_object().map_or(false, |obj| !obj.is_empty());
+                                    
+                                    if should_yield {
                                         // Extract usage info if available
                                         let usage = chunk_json.get("usage").and_then(|u| {
                                             Some(TokenUsage {
                                                 prompt_tokens: u.get("input_tokens")
                                                     .or_else(|| u.get("prompt_tokens"))
                                                     .and_then(|t| t.as_u64())
-                                                    .expect("input_tokens or prompt_tokens must be present") as u32,
+                                                    .unwrap_or(0) as u32,
                                                 completion_tokens: u.get("output_tokens")
                                                     .or_else(|| u.get("completion_tokens"))
                                                     .and_then(|t| t.as_u64())
-                                                    .expect("output_tokens or completion_tokens must be present") as u32,
+                                                    .unwrap_or(0) as u32,
                                                 total_tokens: u.get("total_tokens")
                                                     .and_then(|t| t.as_u64())
-                                                    .expect("total_tokens must be present") as u32,
+                                                    .unwrap_or(0) as u32,
                                             })
                                         });
 
