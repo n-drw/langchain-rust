@@ -145,7 +145,12 @@ impl LLM for Bedrock {
                                     } else if let Some(choices) = chunk_json.get("choices").and_then(|c| c.as_array()) {
                                         // Handle OpenAI-style response format (common for custom models)
                                         if let Some(first_choice) = choices.first() {
-                                            if let Some(delta) = first_choice.get("delta") {
+                                            // First check for direct text field in the choice
+                                            if let Some(text) = first_choice.get("text").and_then(|t| t.as_str()) {
+                                                text.to_string()
+                                            } 
+                                            // Then check for delta object
+                                            else if let Some(delta) = first_choice.get("delta") {
                                                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                                                     content.to_string()
                                                 } else if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
@@ -153,8 +158,6 @@ impl LLM for Bedrock {
                                                 } else {
                                                     "".to_string()
                                                 }
-                                            } else if let Some(text) = first_choice.get("text").and_then(|t| t.as_str()) {
-                                                text.to_string()
                                             } else {
                                                 "".to_string()
                                             }
