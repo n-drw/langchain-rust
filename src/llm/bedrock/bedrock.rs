@@ -65,7 +65,6 @@ impl LLM for Bedrock {
     */
 
     async fn generate(&self, messages: &[Message]) -> Result<GenerateResult, LLMError> {
-        // Format messages using Qwen chat template
         use serde_json::json;
         let prompt = apply_qwen_chat_template(messages);
         let body = json!({ "prompt": prompt }).to_string();
@@ -79,10 +78,67 @@ impl LLM for Bedrock {
             .await
             .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(Box::new(e))))?;
 
-        // Extract the output from the response body
         let body_bytes = response.body().as_ref();
-        let generation = String::from_utf8_lossy(body_bytes).to_string();
-        let tokens = None;
+        let response_str = String::from_utf8_lossy(body_bytes);
+        
+        let generation = if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(&response_str) {
+            log::debug!("Bedrock generate response JSON: {}", serde_json::to_string_pretty(&chunk_json).unwrap_or_else(|_| chunk_json.to_string()));
+            
+            let content = if let Some(output) = chunk_json.get("output").and_then(|o| o.as_str()) {
+                output.to_string()
+            } else if let Some(text) = chunk_json.get("text").and_then(|t| t.as_str()) {
+                text.to_string()
+            } else if let Some(generation) = chunk_json.get("generation").and_then(|g| g.as_str()) {
+                generation.to_string()
+            } else if let Some(choices) = chunk_json.get("choices").and_then(|c| c.as_array()) {
+                if let Some(first_choice) = choices.first() {
+                    if let Some(text) = first_choice.get("text").and_then(|t| t.as_str()) {
+                        text.to_string()
+                    } else if let Some(message) = first_choice.get("message") {
+                        message.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string()
+                    } else {
+                        "".to_string()
+                    }
+                } else {
+                    "".to_string()
+                }
+            } else {
+                response_str.to_string()
+            };
+            
+            content
+                .replace("<|im_end|>", "")
+                .replace("<|im_start|>", "")
+                .replace("<|im_number|>", "")
+                .replace("<|im_content|>", "")
+                .replace("</|im_end|>", "")
+                .replace("\n", " ")
+                .trim()
+                .to_string()
+        } else {
+            response_str.to_string()
+        };
+        
+        let tokens = if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(&response_str) {
+            chunk_json.get("usage").and_then(|u| {
+                Some(TokenUsage {
+                    prompt_tokens: u.get("input_tokens")
+                        .or_else(|| u.get("prompt_tokens"))
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(0) as u32,
+                    completion_tokens: u.get("output_tokens")
+                        .or_else(|| u.get("completion_tokens"))
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(0) as u32,
+                    total_tokens: u.get("total_tokens")
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(0) as u32,
+                })
+            })
+        } else {
+            None
+        };
+        
         Ok(GenerateResult { tokens, generation })
     }
 
@@ -134,9 +190,7 @@ impl LLM for Bedrock {
                                     log::debug!("Bedrock stream chunk JSON: {}", serde_json::to_string_pretty(&chunk_json).unwrap_or_else(|_| chunk_json.to_string()));
                                     
                                     // Extract content from the response with improved logic for DeepSeek model
-                                    let content = if let Some(text) = chunk_json.as_str() {
-                                        text.to_string()
-                                    } else if let Some(output) = chunk_json.get("output").and_then(|o| o.as_str()) {
+                                    let content = if let Some(output) = chunk_json.get("output").and_then(|o| o.as_str()) {
                                         output.to_string()
                                     } else if let Some(text) = chunk_json.get("text").and_then(|t| t.as_str()) {
                                         text.to_string()
@@ -145,12 +199,12 @@ impl LLM for Bedrock {
                                     } else if let Some(choices) = chunk_json.get("choices").and_then(|c| c.as_array()) {
                                         // Handle OpenAI-style response format (common for custom models)
                                         if let Some(first_choice) = choices.first() {
-                                            // First check for direct text field in the choice
                                             if let Some(text) = first_choice.get("text").and_then(|t| t.as_str()) {
                                                 text.to_string()
-                                            } 
-                                            // Then check for delta object
-                                            else if let Some(delta) = first_choice.get("delta") {
+                                            } else if let Some(message) = first_choice.get("message") {
+                                                // Handle chat format with message.content
+                                                message.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string()
+                                            } else if let Some(delta) = first_choice.get("delta") {
                                                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                                                     content.to_string()
                                                 } else if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
@@ -171,6 +225,12 @@ impl LLM for Bedrock {
                                                 text.to_string()
                                             } else if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                                                 content.to_string()
+                                            } else if let Some(choices) = delta.get("choices").and_then(|c| c.as_array()) {
+                                                choices
+                                                    .iter()
+                                                    .filter_map(|choice| choice.get("text").and_then(|t| t.as_str()))
+                                                    .collect::<Vec<_>>()
+                                                    .join("\n")
                                             } else {
                                                 "".to_string()
                                             }
@@ -179,7 +239,7 @@ impl LLM for Bedrock {
                                             chunk_json.as_object()
                                                 .and_then(|obj| {
                                                     // Look for common content fields
-                                                    for key in &["response", "message", "answer", "completion", "result"] {
+                                                    for key in &["response", "message", "answer", "completion", "result", "text"] {
                                                         if let Some(value) = obj.get(*key).and_then(|v| v.as_str()) {
                                                             if !value.trim().is_empty() {
                                                                 return Some(value.to_string());
@@ -189,20 +249,26 @@ impl LLM for Bedrock {
                                                     None
                                                 })
                                                 .unwrap_or_else(|| {
-                                                    // If we still can't find content, log the structure and return the raw JSON
+                                                    // If we still can't find content, log the structure and return empty
                                                     log::warn!("Failed to extract content from Bedrock response. Raw JSON: {}", chunk_str);
-                                                    // Return a small indicator that we received something
-                                                    if chunk_str.len() > 10 {
-                                                        format!("[Unparsed response: {}...]", &chunk_str[..50.min(chunk_str.len())])
-                                                    } else {
-                                                        "".to_string()
-                                                    }
+                                                    "".to_string()
                                                 })
                                         }
                                     };
 
-                                    // Always yield something, even if content is empty (for debugging)
-                                    let should_yield = !content.trim().is_empty() || chunk_json.as_object().map_or(false, |obj| !obj.is_empty());
+                                    // Clean up the content by removing any special tokens or JSON artifacts
+                                    let clean_content = content
+                                        .replace("<|im_end|>", "")
+                                        .replace("<|im_start|>", "")
+                                        .replace("<|im_number|>", "")
+                                        .replace("<|im_content|>", "")
+                                        .replace("</|im_end|>", "")
+                                        .replace("\n", " ")
+                                        .trim()
+                                        .to_string();
+
+                                    // Only yield if we have meaningful content
+                                    let should_yield = !clean_content.is_empty();
                                     
                                     if should_yield {
                                         // Extract usage info if available
@@ -223,9 +289,9 @@ impl LLM for Bedrock {
                                         });
 
                                         yield Ok(StreamData {
-                                            value: chunk_json.clone(),
+                                            value: serde_json::Value::String(clean_content.clone()),
                                             tokens: usage,
-                                            content,
+                                            content: clean_content,
                                         });
                                     }
                                 }
