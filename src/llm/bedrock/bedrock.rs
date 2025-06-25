@@ -261,6 +261,8 @@ impl LLM for Bedrock {
                                         .replace("<|im_end|>", "")
                                         .replace("<|im_start|>", "")
                                         .replace("<|im_number|>", "")
+                                        .replace("<|im_type|>", "")
+                                        .replace("<|im_text|>", "")
                                         .replace("<|im_content|>", "")
                                         .replace("</|im_end|>", "")
                                         .replace("\n", " ")
