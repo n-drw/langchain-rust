@@ -5,6 +5,7 @@ use aws_sdk_bedrockruntime::{
     operation::invoke_model_with_response_stream::InvokeModelWithResponseStreamOutput,
     Client,
 };
+use regex::Regex;
 use crate::{language_models::TokenUsage, llm::bedrock::qwen_chat_template::apply_qwen_chat_template, schemas::convert::OpenAiIntoLangchain};
 use serde_json;
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
