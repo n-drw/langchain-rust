@@ -245,7 +245,15 @@ impl LLM for Bedrock {
                                     };
     
                                     // Remove all <|im_*|> tags and trim leading/trailing whitespace
-                                    let clean_content = tag_re.replace_all(&content, "").trim().to_string();
+                                    let clean_content =  content
+                                    .replace("<|im_end|>", "")
+                                    .replace("<|im_start|>", "")
+                                    .replace("<|im_number|>", "")
+                                    .replace("<|im_content|>", "")
+                                    .replace("</|im_end|>", "")
+                                    .replace('\n', " ")
+                                    .trim()
+                                    .to_string();
     
                                     // Only yield if we have meaningful content
                                     if !clean_content.is_empty() {
