@@ -170,10 +170,15 @@ impl LLM for Bedrock {
             .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(Box::new(e))))?;
 
         fn clean_bedrock_content(content: &str) -> String {
-            let tag_re = Regex::new(r"<\|im_[^|>]+?\|>").unwrap();
-            tag_re.replace_all(content, "")
+            content
+                .replace("<|im_end|>", "")
+                .replace("<|im_start|>", "")
+                .replace("<|im_number|>", "")
+                .replace("<|im_content|>", "")
+                .replace("</|im_end|>", "")
+                .replace("\n", " ")  // This is key - preserves word boundaries
                 .trim()
-                .to_string()
+                .to_string() 
         }
             
         let stream = async_stream::stream! {
@@ -227,7 +232,9 @@ impl LLM for Bedrock {
                                     };
 
 
-                                    let clean_content =  clean_bedrock_content(&content);
+                                    log::debug!("Raw content before cleaning: {:?}", content);
+                                    let clean_content = clean_bedrock_content(&content);
+                                    log::debug!("Content after cleaning: {:?}", clean_content);
     
                                     // Only yield if we have meaningful content
                                     if !clean_content.is_empty() {
