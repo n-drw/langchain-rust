@@ -162,7 +162,7 @@ impl LLM for Bedrock {
         let response = self.client
             .invoke_model_with_response_stream()
             .model_id(self.model_arn.clone())
-            .body(body.into_bytes().into())
+            .body(aws_sdk_bedrockruntime::primitives::Blob::new(body.into_bytes()))
             .content_type("application/json")
             .accept("application/json")
             .send()
@@ -257,7 +257,7 @@ impl LLM for Bedrock {
                                         yield Ok(StreamData {
                                             value: serde_json::Value::String(clean_content.clone()),
                                             tokens: usage,
-                                            content: clean_content,
+                                            content: content,
                                         });
                                     }
                                 }
@@ -274,6 +274,8 @@ impl LLM for Bedrock {
 
 #[cfg(test)]
 mod tests {
+    use tokio::io::AsyncWriteExt;
+
     use super::*;
 
     #[tokio::test]
@@ -309,19 +311,21 @@ mod tests {
         assert!(response.generation.len() > 0);
     }
 
-    // #[tokio::test]
-    // #[ignore]
-    // async fn test_stream() {
-    //     let ollama = Ollama::default().with_model("llama3.2");
+    #[tokio::test]
+    #[ignore]
+    async fn test_stream() {
+        let config: SdkConfig = aws_config::from_env().region("us-west-2").load().await;
+        let client = Client::new(&config);
+        let bedrock = Bedrock::new(client, config, "arn:aws:bedrock:us-west-2:211125612083:imported-model/6acxq2e0nctj".to_string());
 
-    //     let message = Message::new_human_message("Why does water boil at 100 degrees?");
-    //     let mut stream = ollama.stream(&vec![message]).await.unwrap();
-    //     let mut stdout = tokio::io::stdout();
-    //     while let Some(res) = stream.next().await {
-    //         let data = res.unwrap();
-    //         stdout.write(data.content.as_bytes()).await.unwrap();
-    //     }
-    //     stdout.write(b"\n").await.unwrap();
-    //     stdout.flush().await.unwrap();
-    // }
+        let message = Message::new_human_message("Why does water boil at 100 degrees?");
+        let mut stream = bedrock.stream(&vec![message]).await.unwrap();
+        let mut stdout = tokio::io::stdout();
+        while let Some(res) = stream.next().await {
+            let data = res.unwrap();
+            stdout.write(data.content.as_bytes()).await.unwrap();
+        }
+        stdout.write(b"\n").await.unwrap();
+        stdout.flush().await.unwrap();
+    }
 }
