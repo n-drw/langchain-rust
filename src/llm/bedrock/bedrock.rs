@@ -151,9 +151,6 @@ impl LLM for Bedrock {
     
         let payload = serde_json::json!({
             "prompt": prompt,
-            "max_tokens": 2000,
-            "temperature": 0.7,
-            "top_p": 0.9,
             "stream": true
         });
     
