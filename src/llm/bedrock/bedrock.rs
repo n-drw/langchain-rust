@@ -169,10 +169,14 @@ impl LLM for Bedrock {
             .send()
             .await
             .map_err(|e| LLMError::BedrockError(BedrockError::AwsServiceError(Box::new(e))))?;
-    
-        // Regex to remove all <|im_*|> tags
-        let tag_re = Regex::new(r"<\|im_.*?\|>").unwrap();
-    
+
+        fn clean_bedrock_content(content: &str) -> String {
+            let tag_re = Regex::new(r"<\|im_[^|>]+?\|>").unwrap();
+            tag_re.replace_all(content, "")
+                .trim()
+                .to_string()
+        }
+            
         let stream = async_stream::stream! {
             let mut event_stream = response.body;
             while let Ok(Some(event)) = event_stream.recv().await {
@@ -198,62 +202,33 @@ impl LLM for Bedrock {
                                                 text.to_string()
                                             } else if let Some(message) = first_choice.get("message") {
                                                 message.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string()
-                                            } else if let Some(delta) = first_choice.get("delta") {
-                                                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                                    content.to_string()
-                                                } else if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                                                    text.to_string()
-                                                } else {
-                                                    "".to_string()
-                                                }
                                             } else {
                                                 "".to_string()
                                             }
                                         } else {
                                             "".to_string()
                                         }
-                                    } else if let Some(delta) = chunk_json.get("delta") {
-                                        if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                                            text.to_string()
-                                        } else if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                            content.to_string()
-                                        } else if let Some(choices) = delta.get("choices").and_then(|c| c.as_array()) {
-                                            choices
-                                                .iter()
-                                                .filter_map(|choice| choice.get("text").and_then(|t| t.as_str()))
-                                                .collect::<Vec<_>>()
-                                                .join("\n")
-                                        } else {
-                                            "".to_string()
-                                        }
                                     } else {
-                                        chunk_json.as_object()
-                                            .and_then(|obj| {
-                                                for key in &["response", "message", "answer", "completion", "result", "text"] {
-                                                    if let Some(value) = obj.get(*key).and_then(|v| v.as_str()) {
-                                                        if !value.trim().is_empty() {
-                                                            return Some(value.to_string());
-                                                        }
+                                        let response_str = chunk_json.as_object()
+                                        .and_then(|obj| {
+                                            for key in &["response", "message", "answer", "completion", "result", "text"] {
+                                                if let Some(value) = obj.get(*key).and_then(|v| v.as_str()) {
+                                                    if !value.trim().is_empty() {
+                                                        return Some(value.to_string());
                                                     }
                                                 }
-                                                None
-                                            })
-                                            .unwrap_or_else(|| {
-                                                log::warn!("Failed to extract content from Bedrock response. Raw JSON: {}", chunk_str);
-                                                "".to_string()
-                                            })
+                                            }
+                                            None
+                                        })
+                                        .unwrap_or_else(|| {
+                                            log::warn!("Failed to extract content from Bedrock response. Raw JSON: {}", chunk_str);
+                                            "".to_string()
+                                        });
+                                       clean_bedrock_content(&response_str)
                                     };
-    
-                                    // Remove all <|im_*|> tags and trim leading/trailing whitespace
-                                    let clean_content =  content
-                                    .replace("<|im_end|>", "")
-                                    .replace("<|im_start|>", "")
-                                    .replace("<|im_number|>", "")
-                                    .replace("<|im_content|>", "")
-                                    .replace("</|im_end|>", "")
-                                    .replace('\n', " ")
-                                    .trim()
-                                    .to_string();
+
+
+                                    let clean_content =  clean_bedrock_content(&content);
     
                                     // Only yield if we have meaningful content
                                     if !clean_content.is_empty() {
