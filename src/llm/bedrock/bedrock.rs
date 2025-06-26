@@ -67,7 +67,7 @@ impl LLM for Bedrock {
 
     async fn generate(&self, messages: &[Message]) -> Result<GenerateResult, LLMError> {
         use serde_json::json;
-        let prompt = apply_qwen_chat_template(messages);
+        let prompt = apply_qwen_chat_template(messages, true);
         let body = json!({ "prompt": prompt }).to_string();
         let response: InvokeModelOutput = self.client
             .invoke_model()
@@ -112,7 +112,9 @@ impl LLM for Bedrock {
                 .replace("<|im_start|>", "")
                 .replace("<|im_number|>", "")
                 .replace("<|im_content|>", "")
+                .replace("<|im_end|>", "")
                 .replace("</|im_end|>", "")
+
                 .replace("\n", " ")
                 .trim()
                 .to_string()
@@ -147,7 +149,7 @@ impl LLM for Bedrock {
         &self,
         messages: &[Message],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamData, LLMError>> + Send>>, LLMError> {
-        let prompt = apply_qwen_chat_template(messages);
+        let prompt = apply_qwen_chat_template(messages, true);
     
         let payload = serde_json::json!({
             "prompt": prompt,

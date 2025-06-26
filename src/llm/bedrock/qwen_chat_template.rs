@@ -2,10 +2,17 @@
 /// See: https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct and Bedrock docs
 ///
 /// Example output:
-/// <|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nHello!<|im_end|>\n<|im_start|>assistant\n
+///  system
+/// You are a helpful assistant.
+/// 
+/// user
+/// Hello!
+/// 
+/// assistant
+/// 
 use crate::schemas::{Message, MessageType};
 
-pub fn apply_qwen_chat_template(messages: &[Message]) -> String {
+pub fn apply_qwen_chat_template(messages: &[Message], append_static_prompt: bool) -> String {
     let mut out = String::new();
     for msg in messages {
         let role = match msg.message_type {
@@ -14,13 +21,20 @@ pub fn apply_qwen_chat_template(messages: &[Message]) -> String {
             MessageType::HumanMessage => "user",
             MessageType::ToolMessage => "user", // fallback
         };
-        out.push_str("<|im_start|>");
+        out.push_str(" ");
         out.push_str(role);
         out.push('\n');
         out.push_str(&msg.content);
-        out.push_str("<|im_end|>\n");
+        out.push_str(" ");
     }
-    // Add generation prompt for the assistant
-    out.push_str("<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nHello!<|im_end|>\n<|im_start|>assistant\n");
+    // Conditionally add generation prompt for the assistant
+    if append_static_prompt {
+        out.push_str(" system
+You are a helpful assistant. 
+ user
+Hello! 
+ assistant
+");
+    }
     out
 }
