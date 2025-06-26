@@ -21,6 +21,6 @@ pub fn apply_qwen_chat_template(messages: &[Message]) -> String {
         out.push_str("<|im_end|>\n");
     }
     // Add generation prompt for the assistant
-    out.push_str("<|im_start|>assistant\n\n");
+    out.push_str("<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\nHello!<|im_end|>\n<|im_start|>assistant\n");
     out
 }
