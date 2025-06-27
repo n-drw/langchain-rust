@@ -237,7 +237,7 @@ impl LLM for Bedrock {
                                     log::debug!("Content after cleaning: {:?}", clean_content);
     
                                     // Only yield if we have meaningful content
-                                    if !clean_content.is_empty() {
+                                    if !content.is_empty() {
                                         let usage = chunk_json.get("usage").and_then(|u| {
                                             Some(TokenUsage {
                                                 prompt_tokens: u.get("input_tokens")
@@ -257,7 +257,7 @@ impl LLM for Bedrock {
                                         yield Ok(StreamData {
                                             value: serde_json::Value::String(clean_content.clone()),
                                             tokens: usage,
-                                            content: clean_content.clone(),
+                                            content: content.clone(),
                                         });
                                     }
                                 }
