@@ -177,7 +177,6 @@ impl LLM for Bedrock {
                 .replace("<|im_content|>", "")
                 .replace("</|im_end|>", "")
                 .replace("\n", " ")  // This is key - preserves word boundaries
-                .trim()
                 .to_string() 
         }
             
@@ -257,7 +256,7 @@ impl LLM for Bedrock {
                                         yield Ok(StreamData {
                                             value: serde_json::Value::String(clean_content.clone()),
                                             tokens: usage,
-                                            content: content.clone(),
+                                            content: clean_content.clone(),
                                         });
                                     }
                                 }
