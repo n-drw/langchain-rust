@@ -257,7 +257,7 @@ impl LLM for Bedrock {
                                         yield Ok(StreamData {
                                             value: serde_json::Value::String(clean_content.clone()),
                                             tokens: usage,
-                                            content: content,
+                                            content: clean_content.clone(),
                                         });
                                     }
                                 }
