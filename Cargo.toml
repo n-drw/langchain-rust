@@ -54,7 +54,7 @@ secrecy = { version = "0.10.3", features = ["serde"] }
 readability = "0.3.0"
 htmd = { version = "0.1", optional = true }
 url = "2.5.0"
-fastembed = { path = "../fastembed-rs", optional = true, features = ["hf-hub-rustls-tls"] }
+fastembed = { git = "https://github.com/n-drw/fastembed-rs", optional = true, features = ["hf-hub-rustls-tls"] }
 flume = { version = "0.11.0", optional = true }
 gix = { version = "0.68.0", default-features = false, optional = true, features = [
     "parallel",
