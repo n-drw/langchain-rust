@@ -5,10 +5,8 @@ use aws_sdk_bedrockruntime::{
     operation::invoke_model_with_response_stream::InvokeModelWithResponseStreamOutput,
     Client,
 };
-use regex::Regex;
-use crate::{language_models::TokenUsage, llm::bedrock::qwen_chat_template::apply_qwen_chat_template, schemas::convert::OpenAiIntoLangchain};
-use serde_json;
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
+use crate::{language_models::TokenUsage, llm::bedrock::qwen_chat_template::apply_qwen_chat_template};
+use futures::Stream;
 use std::pin::Pin;
 use async_stream;
 use log;
@@ -68,7 +66,16 @@ impl LLM for Bedrock {
     async fn generate(&self, messages: &[Message]) -> Result<GenerateResult, LLMError> {
         use serde_json::json;
         let prompt = apply_qwen_chat_template(messages, true);
-        let body = json!({ "prompt": prompt }).to_string();
+        let payload = json!({
+            "prompt": prompt,
+            "max_tokens": 4096,
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "stop": ["<|im_start|>", "<|im_end|>"],
+            "stream": false,
+        });
+        let body = serde_json::to_string(&payload)
+            .map_err(|e| LLMError::OtherError(format!("JSON serialization error: {}", e)))?;
         let response: InvokeModelOutput = self.client
             .invoke_model()
             .model_id(self.model_arn.clone())
@@ -150,16 +157,23 @@ impl LLM for Bedrock {
         messages: &[Message],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamData, LLMError>> + Send>>, LLMError> {
         let prompt = apply_qwen_chat_template(messages, true);
+        
+        // Debug: Log the full prompt being sent
+        log::debug!("Full prompt being sent to Bedrock:\n{}", prompt);
     
         let payload = serde_json::json!({
             "prompt": prompt,
+            "max_tokens": 4096,
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "stop": ["<|im_start|>", "<|im_end|>"],
             "stream": true
         });
     
         let body = serde_json::to_string(&payload)
             .map_err(|e| LLMError::OtherError(format!("JSON serialization error: {}", e)))?;
     
-        let response = self.client
+        let response: InvokeModelWithResponseStreamOutput = self.client
             .invoke_model_with_response_stream()
             .model_id(self.model_arn.clone())
             .body(aws_sdk_bedrockruntime::primitives::Blob::new(body.into_bytes()))
@@ -173,9 +187,21 @@ impl LLM for Bedrock {
             content
                 .replace("<|im_end|>", "")
                 .replace("<|im_start|>", "")
+                .replace("<|im>", "")
+                .replace("<|im_text|>", "")
                 .replace("<|im_number|>", "")
                 .replace("<|im_content|>", "")
+                .replace("<|im_context|>", "")      
+                .replace("</|im_context>", "")
+                .replace("<|im_query|>", "")        
+                .replace("</|im_query>", "")        
+                .replace("<|im_response|>", "")     
+                .replace("</|im_response>", "")     
                 .replace("</|im_end|>", "")
+                .replace("|im_end|", "")
+                .replace("</smi>", "")
+                .replace("<|user|>", "")
+                .replace("<|assistant|>", "")
                 .replace("\n", " ")  // This is key - preserves word boundaries
                 .to_string() 
         }

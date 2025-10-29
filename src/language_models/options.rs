@@ -34,6 +34,7 @@ impl Default for CallOptions {
     fn default() -> Self {
         CallOptions::new()
     }
+
 }
 impl CallOptions {
     pub fn new() -> Self {

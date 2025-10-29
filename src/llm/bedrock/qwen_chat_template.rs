@@ -19,22 +19,17 @@ pub fn apply_qwen_chat_template(messages: &[Message], append_static_prompt: bool
             MessageType::SystemMessage => "system",
             MessageType::AIMessage => "assistant",
             MessageType::HumanMessage => "user",
-            MessageType::ToolMessage => "user", // fallback
+            MessageType::ToolMessage => "tool", // fallback
         };
-        out.push_str(" ");
+        out.push_str("<|im_start|>");
         out.push_str(role);
         out.push('\n');
         out.push_str(&msg.content);
-        out.push_str(" ");
+        out.push_str("<|im_end|>\n");
     }
     // Conditionally add generation prompt for the assistant
     if append_static_prompt {
-        out.push_str(" system
-You are a helpful assistant. 
- user
-Hello! 
- assistant
-");
+        out.push_str("<|im_start|>assistant\n");
     }
     out
 }

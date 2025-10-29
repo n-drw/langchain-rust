@@ -1,18 +1,21 @@
 use async_trait::async_trait;
+use std::sync::Mutex;
 
 use crate::embedding::{Embedder, EmbedderError};
 use fastembed::TextEmbedding;
 
 pub struct FastEmbed {
-    model: TextEmbedding,
+    model: Mutex<TextEmbedding>,
     batch_size: Option<usize>,
 }
 
 impl FastEmbed {
     pub fn try_new() -> Result<Self, EmbedderError> {
         Ok(Self {
-            model: TextEmbedding::try_new(Default::default())
-                .map_err(|e| EmbedderError::FastEmbedError(e.to_string()))?,
+            model: Mutex::new(
+                TextEmbedding::try_new(Default::default())
+                    .map_err(|e| EmbedderError::FastEmbedError(e.to_string()))?,
+            ),
             batch_size: None,
         })
     }
@@ -26,7 +29,7 @@ impl FastEmbed {
 impl From<TextEmbedding> for FastEmbed {
     fn from(model: TextEmbedding) -> Self {
         Self {
-            model,
+            model: Mutex::new(model),
             batch_size: None,
         }
     }
@@ -35,8 +38,12 @@ impl From<TextEmbedding> for FastEmbed {
 #[async_trait]
 impl Embedder for FastEmbed {
     async fn embed_documents(&self, documents: &[String]) -> Result<Vec<Vec<f64>>, EmbedderError> {
-        let embeddings = self
+        let mut model = self
             .model
+            .lock()
+            .map_err(|e| EmbedderError::FastEmbedError(format!("Failed to lock model: {}", e)))?;
+        
+        let embeddings = model
             .embed(documents.to_vec(), self.batch_size)
             .map_err(|e| EmbedderError::FastEmbedError(e.to_string()))?;
 
@@ -52,8 +59,12 @@ impl Embedder for FastEmbed {
     }
 
     async fn embed_query(&self, text: &str) -> Result<Vec<f64>, EmbedderError> {
-        let embedding = self
+        let mut model = self
             .model
+            .lock()
+            .map_err(|e| EmbedderError::FastEmbedError(format!("Failed to lock model: {}", e)))?;
+        
+        let embedding = model
             .embed(vec![text], self.batch_size)
             .map_err(|e| EmbedderError::FastEmbedError(e.to_string()))?;
 
