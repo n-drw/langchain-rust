@@ -55,13 +55,13 @@ impl Into<String> for OpenAIModel {
 }
 
 #[derive(Clone)]
-pub struct OpenAI<C: Config> {
+pub struct OpenAI<C: Config + Clone> {
     config: C,
     options: CallOptions,
     model: String,
 }
 
-impl<C: Config> OpenAI<C> {
+impl<C: Config + Clone> OpenAI<C> {
     pub fn new(config: C) -> Self {
         Self {
             config,
@@ -93,7 +93,7 @@ impl Default for OpenAI<OpenAIConfig> {
 }
 
 #[async_trait]
-impl<C: Config + Send + Sync + 'static> LLM for OpenAI<C> {
+impl<C: Config + Clone + Send + Sync + 'static> LLM for OpenAI<C> {
     async fn generate(&self, prompt: &[Message]) -> Result<GenerateResult, LLMError> {
         let client = Client::with_config(self.config.clone());
         let request = self.generate_request(prompt, self.options.streaming_func.is_some())?;
@@ -120,8 +120,8 @@ impl<C: Config + Send + Sync + 'static> LLM for OpenAI<C> {
                                     )
                                     .await;
                                 }
-                                if let Some(content) = chat_choice.delta.content {
-                                    generate_result.generation.push_str(&content);
+                                if let Some(ref content) = chat_choice.delta.content {
+                                    generate_result.generation.push_str(content);
                                 }
                             }
                         }
@@ -207,7 +207,7 @@ impl<C: Config + Send + Sync + 'static> LLM for OpenAI<C> {
     }
 }
 
-impl<C: Config> OpenAI<C> {
+impl<C: Config + Clone> OpenAI<C> {
     fn to_openai_messages(
         &self,
         messages: &[Message],

@@ -28,6 +28,10 @@ pub struct Bedrock {
     pub(crate) client: Client,
     pub(crate) config: SdkConfig,
     pub(crate) model_arn: String,
+    pub(crate) max_tokens: u32,
+    pub(crate) temperature: f32,
+    pub(crate) top_p: f32,
+    pub(crate) strip_reasoning: bool,
 }
 
 impl Bedrock {
@@ -36,7 +40,66 @@ impl Bedrock {
             client,
             config,
             model_arn,
+            max_tokens: 4096,
+            temperature: 0.2,
+            top_p: 0.9,
+            strip_reasoning: false,
         }
+    }
+
+    /// Configure max_tokens for generation
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.max_tokens = max_tokens;
+        self
+    }
+
+    /// Configure temperature (0.0 to 1.0)
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = temperature;
+        self
+    }
+
+    /// Configure top_p (0.0 to 1.0)
+    pub fn with_top_p(mut self, top_p: f32) -> Self {
+        self.top_p = top_p;
+        self
+    }
+
+    /// Enable stripping of <think>...</think> reasoning blocks from responses
+    pub fn with_strip_reasoning(mut self, strip_reasoning: bool) -> Self {
+        self.strip_reasoning = strip_reasoning;
+        self
+    }
+
+    /// Remove <think>...</think> blocks from content
+    fn strip_reasoning_blocks(content: &str) -> String {
+        let mut result = String::with_capacity(content.len());
+        let mut in_think_block = false;
+        let mut chars = content.chars().peekable();
+        
+        while let Some(ch) = chars.next() {
+            if ch == '<' {
+                // Look ahead to see if this is <think> or </think>
+                let peek_str: String = chars.clone().take(7).collect();
+                if peek_str.starts_with("think>") {
+                    in_think_block = true;
+                    // Skip the entire <think> tag
+                    for _ in 0..6 { chars.next(); }
+                    continue;
+                } else if peek_str.starts_with("/think>") {
+                    in_think_block = false;
+                    // Skip the entire </think> tag
+                    for _ in 0..7 { chars.next(); }
+                    continue;
+                }
+            }
+            
+            if !in_think_block {
+                result.push(ch);
+            }
+        }
+        
+        result.trim().to_string()
     }
 }
 
@@ -68,9 +131,9 @@ impl LLM for Bedrock {
         let prompt = apply_qwen_chat_template(messages, true);
         let payload = json!({
             "prompt": prompt,
-            "max_tokens": 4096,
-            "temperature": 0.2,
-            "top_p": 0.9,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
             "stop": ["<|im_start|>", "<|im_end|>"],
             "stream": false,
         });
@@ -114,17 +177,23 @@ impl LLM for Bedrock {
                 response_str.to_string()
             };
             
-            content
+            let cleaned = content
                 .replace("<|im_end|>", "")
                 .replace("<|im_start|>", "")
                 .replace("<|im_number|>", "")
                 .replace("<|im_content|>", "")
                 .replace("<|im_end|>", "")
                 .replace("</|im_end|>", "")
-
                 .replace("\n", " ")
                 .trim()
-                .to_string()
+                .to_string();
+            
+            // Strip reasoning if enabled
+            if self.strip_reasoning {
+                Self::strip_reasoning_blocks(&cleaned)
+            } else {
+                cleaned
+            }
         } else {
             response_str.to_string()
         };
@@ -163,9 +232,9 @@ impl LLM for Bedrock {
     
         let payload = serde_json::json!({
             "prompt": prompt,
-            "max_tokens": 4096,
-            "temperature": 0.2,
-            "top_p": 0.9,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
             "stop": ["<|im_start|>", "<|im_end|>"],
             "stream": true
         });
@@ -206,6 +275,9 @@ impl LLM for Bedrock {
                 .to_string() 
         }
             
+        // Capture strip_reasoning before creating stream
+        let strip_reasoning = self.strip_reasoning;
+        
         let stream = async_stream::stream! {
             let mut event_stream = response.body;
             while let Ok(Some(event)) = event_stream.recv().await {
@@ -260,9 +332,16 @@ impl LLM for Bedrock {
                                     log::debug!("Raw content before cleaning: {:?}", content);
                                     let clean_content = clean_bedrock_content(&content);
                                     log::debug!("Content after cleaning: {:?}", clean_content);
+                                    
+                                    // Apply reasoning stripping if enabled
+                                    let final_content = if strip_reasoning {
+                                        Bedrock::strip_reasoning_blocks(&clean_content)
+                                    } else {
+                                        clean_content
+                                    };
     
                                     // Only yield if we have meaningful content
-                                    if !content.is_empty() {
+                                    if !final_content.is_empty() {
                                         let usage = chunk_json.get("usage").and_then(|u| {
                                             Some(TokenUsage {
                                                 prompt_tokens: u.get("input_tokens")
@@ -280,9 +359,9 @@ impl LLM for Bedrock {
                                         });
     
                                         yield Ok(StreamData {
-                                            value: serde_json::Value::String(clean_content.clone()),
+                                            value: serde_json::Value::String(final_content.clone()),
                                             tokens: usage,
-                                            content: clean_content.clone(),
+                                            content: final_content,
                                         });
                                     }
                                 }

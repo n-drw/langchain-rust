@@ -1,4 +1,3 @@
-use aws_sdk_bedrockruntime::error::SdkError;
 use std::fmt::Debug;
 use thiserror::Error;
 

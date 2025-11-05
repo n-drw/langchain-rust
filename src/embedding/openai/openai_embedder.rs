@@ -9,18 +9,18 @@ use async_openai::{
 use async_trait::async_trait;
 
 #[derive(Debug)]
-pub struct OpenAiEmbedder<C: Config> {
+pub struct OpenAiEmbedder<C: Config + Clone> {
     config: C,
     model: String,
 }
 
-impl<C: Config + Send + Sync + 'static> Into<Box<dyn Embedder>> for OpenAiEmbedder<C> {
+impl<C: Config + Clone + Send + Sync + 'static> Into<Box<dyn Embedder>> for OpenAiEmbedder<C> {
     fn into(self) -> Box<dyn Embedder> {
         Box::new(self)
     }
 }
 
-impl<C: Config> OpenAiEmbedder<C> {
+impl<C: Config + Clone> OpenAiEmbedder<C> {
     pub fn new(config: C) -> Self {
         OpenAiEmbedder {
             config,
@@ -46,7 +46,7 @@ impl Default for OpenAiEmbedder<OpenAIConfig> {
 }
 
 #[async_trait]
-impl<C: Config + Send + Sync> Embedder for OpenAiEmbedder<C> {
+impl<C: Config + Clone + Send + Sync> Embedder for OpenAiEmbedder<C> {
     async fn embed_documents(&self, documents: &[String]) -> Result<Vec<Vec<f64>>, EmbedderError> {
         let client = Client::with_config(self.config.clone());
 
