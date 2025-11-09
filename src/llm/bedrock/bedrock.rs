@@ -184,7 +184,6 @@ impl LLM for Bedrock {
                 .replace("<|im_content|>", "")
                 .replace("<|im_end|>", "")
                 .replace("</|im_end|>", "")
-                .replace("\n", " ")
                 .trim()
                 .to_string();
             
@@ -271,7 +270,6 @@ impl LLM for Bedrock {
                 .replace("</smi>", "")
                 .replace("<|user|>", "")
                 .replace("<|assistant|>", "")
-                .replace("\n", " ")  // This is key - preserves word boundaries
                 .to_string() 
         }
             
