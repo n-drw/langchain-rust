@@ -15,3 +15,8 @@ pub use deepseek::*;
 
 pub mod bedrock;
 pub use bedrock::*;
+
+#[cfg(feature = "burn-local")]
+pub mod burn;
+#[cfg(feature = "burn-local")]
+pub use burn::*;

@@ -87,6 +87,13 @@ aws-config = { version = "1.6.3", features = [
     "behavior-version-latest",
 ] }
 
+# Burn for local LLM inference with WebGPU
+burn = { version = "0.16", optional = true, default-features = false }
+burn-ndarray = { version = "0.16", optional = true }
+burn-wgpu = { version = "0.16", optional = true }
+burn-candle = { version = "0.16", optional = true }
+tokenizers = { version = "0.21", optional = true, default-features = false, features = ["onig"] }
+rand_local = { package = "rand", version = "0.8", optional = true }
 
 [features]
 default = []
@@ -118,6 +125,12 @@ tree-sitter = [
     "dep:tree-sitter-scala",
     "dep:tree-sitter-typescript",
 ]
+
+# Burn local inference backends
+burn-local = ["burn", "tokenizers", "rand_local"]
+burn-ndarray = ["burn-local", "dep:burn-ndarray"]
+burn-wgpu = ["burn-local", "dep:burn-wgpu"]
+burn-candle = ["burn-local", "dep:burn-candle"]
 
 [dev-dependencies]
 base64 = "0.22.1"
