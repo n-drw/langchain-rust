@@ -17,3 +17,8 @@ pub use tokenizer::*;
 mod config;
 #[cfg(feature = "burn-local")]
 pub use config::*;
+
+#[cfg(feature = "burn-local")]
+mod qwen3_model;
+#[cfg(feature = "burn-local")]
+pub use qwen3_model::*;

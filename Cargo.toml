@@ -87,11 +87,10 @@ aws-config = { version = "1.6.3", features = [
     "behavior-version-latest",
 ] }
 
-# Burn for local LLM inference with WebGPU
-burn = { version = "0.16", optional = true, default-features = false }
-burn-ndarray = { version = "0.16", optional = true }
-burn-wgpu = { version = "0.16", optional = true }
-burn-candle = { version = "0.16", optional = true }
+burn = { path = "../burn/crates/burn", optional = true, default-features = false }
+burn-ndarray = { path = "../burn/crates/burn-ndarray", optional = true }
+burn-wgpu = { path = "../burn/crates/burn-wgpu", optional = true }
+burn-candle = { path = "../burn/crates/burn-candle", optional = true }
 tokenizers = { version = "0.21", optional = true, default-features = false, features = ["onig"] }
 rand_local = { package = "rand", version = "0.8", optional = true }
 
@@ -126,8 +125,7 @@ tree-sitter = [
     "dep:tree-sitter-typescript",
 ]
 
-# Burn local inference backends
-burn-local = ["burn", "tokenizers", "rand_local"]
+burn-local = ["burn", "tokenizers", "rand_local", "burn-import"]
 burn-ndarray = ["burn-local", "dep:burn-ndarray"]
 burn-wgpu = ["burn-local", "dep:burn-wgpu"]
 burn-candle = ["burn-local", "dep:burn-candle"]
@@ -139,3 +137,4 @@ testcontainers = "0.23"
 
 [build-dependencies]
 cc = { version = "1", optional = true }
+burn-import = { path = "../burn/crates/burn-import", optional = true }

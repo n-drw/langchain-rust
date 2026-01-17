@@ -8,8 +8,6 @@ type Backend = NdArray<f32>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Path to the exported Qwen3-0.6B model
-    // Update these paths to point to your exported model
     let model_path = std::env::var("BURN_MODEL_PATH")
         .unwrap_or_else(|_| "../hello_michi/onnx_models/qwen3-0.6b/model.onnx".to_string());
     let tokenizer_path = std::env::var("BURN_TOKENIZER_PATH")
@@ -19,7 +17,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Model path: {}", model_path);
     println!("Tokenizer path: {}", tokenizer_path);
 
-    // Load tokenizer first to test it works
     println!("\n1. Loading tokenizer...");
     let tokenizer = match BurnTokenizer::from_file(&tokenizer_path) {
         Ok(t) => {
@@ -33,7 +30,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Test tokenization
     println!("\n2. Testing tokenization...");
     let test_text = "Hello, how are you?";
     match tokenizer.encode(test_text, true) {
